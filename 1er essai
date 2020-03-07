@@ -1,0 +1,180 @@
+#include <TinyGPS++.h>
+#include <SPI.h>
+#include <LoRa.h>
+#include <SSD1306.h>
+#include <Arduino.h>
+
+// Choose two Arduino pins to use for software serial
+
+#define RXD2 22
+#define TXD2 23
+
+#define SS 18
+#define RST 14
+#define DI0 26
+#define BAND 433E6
+#define OLED_BTN 0
+
+HardwareSerial gpsSerial(1);
+
+SSD1306 display(0x3c, 4, 15);
+
+byte chipByte[6];
+String chipId;                  // ChipID's card
+int batteryLevel;
+float gpsLat;
+float gpsLon;
+float gpsAlt;
+bool gpsReady;
+
+String receivedTextBinary;
+String receivedRssi;
+long lastSendTime = 0;          // Last send time
+int interval = 10000;           // Interval between sends
+
+bool displayOn = true;
+
+// Create a TinyGPS++ object
+
+TinyGPSPlus gps;
+
+/*---------------------------------------------------------- Encoding Message ------------------------------------------------------------ */
+
+/*--------------------------------------------------------- Send a LoRa Message ---------------------------------------------------------- */
+
+/*-------------------------------------------------------- Receive a LoRa Message -------------------------------------------------------- */
+
+/*------------------------------------------------------- Get ChipID (Mac Address) ------------------------------------------------------- */
+
+/*---------------------------------------------------------- Get Battery Voltage --------------------------------------------------------- */
+
+/*------------------------------------------------------------- Get GPS Info ------------------------------------------------------------ */
+
+void gpsInfo()
+
+{
+  if (gps.location.isValid()) {
+    gpsReady = true;
+    Serial.printf("Latitude : ");
+    gpsLat = gps.location.lat();
+    Serial.printf("%.6f\n", gpsLat);
+    Serial.printf("Longitude: ");
+    gpsLon = gps.location.lng();
+   Serial.printf("%.6f\n", gpsLon);
+    Serial.printf("Altitude: ");
+    gpsAlt = gps.altitude.meters();
+    Serial.printf("%.2f\n", gpsAlt);
+    display.drawString(0, 10, "GPS : " + String(gpsLat, 6) + "; " + String(gpsLon, 6) + "; " + String(gpsAlt, 2));
+
+  } else {
+    gpsReady = true;
+    gpsLat = 45.181375;
+    gpsLon = 5.743377;
+    gpsAlt = 200.12;
+    Serial.printf("Location : Not Available\n");
+    display.drawString(0, 10, "GPS : Not Available");
+  }
+  Serial.printf("Date : ");
+
+  if (gps.date.isValid()) {
+    Serial.printf("%d", gps.date.month());
+    Serial.printf("/");
+    Serial.printf("%d", gps.date.day());
+    Serial.printf("/");
+    Serial.printf("%d\n", gps.date.year());
+  } else {
+    Serial.printf("Not Available\n");
+  }
+  Serial.printf("Time : ");
+
+  if (gps.time.isValid()) {
+    if (gps.time.hour() < 10) Serial.print(F("0"));
+    Serial.printf("%d", gps.time.hour());
+    Serial.printf(":");
+    if (gps.time.minute() < 10) Serial.print(F("0"));
+    Serial.printf("%d", gps.time.minute());
+    Serial.printf(":");
+    if (gps.time.second() < 10) Serial.print(F("0"));
+    Serial.printf("%d", gps.time.second());
+    Serial.printf(".");
+    if (gps.time.centisecond() < 10) Serial.print(F("0"));
+    Serial.printf("%d\n", gps.time.centisecond());
+
+  } else {
+    Serial.printf("Not Available\n");
+  }
+}
+
+String uint64_t_to_String(uint64_t number) {
+  unsigned long long1 = (unsigned long)((number >> 32 ));
+  unsigned long long2 = (unsigned long)((number));
+  chipByte[0] = (byte) (long1 >> 8);
+  chipByte[1] = (byte) (long1);
+  for (int i = 0 ; i < 4 ; i++) {
+    chipByte[5 - i] = (byte) (long2 >> 8 * i);
+  }
+
+  String hex = String(long1, HEX) + String(long2, HEX); // six octets
+  hex.toUpperCase();
+  return hex;
+}
+
+void setup() {
+
+  Serial.begin(115200);
+  pinMode(25, OUTPUT); // Send success, LED will bright 1 second
+  pinMode(16, OUTPUT);
+
+  digitalWrite(16, LOW); // set GPIO16 low to reset OLED
+  delay(50);
+  digitalWrite(16, HIGH);
+  //while (!Serial); // If just the the basic function, must connect to a computer
+
+  gpsSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);
+
+  display.init();
+  //display.flipScreenVertically();
+  display.setFont(ArialMT_Plain_16);
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  display.drawString(45, 10, "HuSki");
+  display.drawString(30, 25, "is loading...");
+  display.display();
+  display.setFont(ArialMT_Plain_10);
+
+  SPI.begin(5, 19, 27, SS);
+  LoRa.setPins(SS, RST, DI0);
+
+}
+void loop() {
+
+    if (digitalRead(OLED_BTN) && displayOn) {
+      display.displayOff();
+      displayOn = false;
+
+    } else if (!digitalRead(OLED_BTN) && !displayOn) {
+      display.displayOn();
+      displayOn = true;
+    }
+
+    if (millis() - lastSendTime > interval) {
+
+      display.clear();
+      while (gpsSerial.available()) {
+        if (gps.encode(gpsSerial.read())) {
+          gpsInfo();
+          break;
+        }
+      }
+      /*if (millis() > 5000 && gps.charsProcessed() < 10) {
+
+        Serial.printf("No GPS detected\n");
+
+        while (true);
+
+        }*/
+
+      // Recuperation en char * de la concat de la valeur
+      display.display();
+      lastSendTime = millis();
+    }
+  }
